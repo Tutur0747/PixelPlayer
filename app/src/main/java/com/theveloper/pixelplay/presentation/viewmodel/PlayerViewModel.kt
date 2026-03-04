@@ -568,6 +568,7 @@ class PlayerViewModel @Inject constructor(
     val wifiName: StateFlow<String?> = connectivityStateHolder.wifiName
     val isBluetoothEnabled: StateFlow<Boolean> = connectivityStateHolder.isBluetoothEnabled
     val bluetoothName: StateFlow<String?> = connectivityStateHolder.bluetoothName
+    val bluetoothAudioDeviceStates: StateFlow<List<BluetoothAudioDeviceState>> = connectivityStateHolder.bluetoothAudioDeviceStates
     val bluetoothAudioDevices: StateFlow<List<String>> = connectivityStateHolder.bluetoothAudioDevices
 
 
