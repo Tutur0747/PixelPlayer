@@ -62,6 +62,7 @@ import com.theveloper.pixelplay.presentation.components.subcomps.EnhancedSongLis
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.StablePlayerState
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -81,9 +82,9 @@ fun LibraryFavoritesTab(
     sortOption: SortOption,
     onLocateCurrentSongVisibilityChanged: (Boolean) -> Unit = {},
     onRegisterLocateCurrentSongAction: ((() -> Unit)?) -> Unit = {},
-    storageFilter: StorageFilter = StorageFilter.ALL
+    storageFilter: StorageFilter = StorageFilter.ALL,
+    hasCurrentSong: Boolean = false
 ) {
-    val stablePlayerState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val visibilityCallback by rememberUpdatedState(onLocateCurrentSongVisibilityChanged)
@@ -91,7 +92,11 @@ fun LibraryFavoritesTab(
     var lastHandledFavoriteSortKey by remember { mutableStateOf(sortOption.storageKey) }
     var pendingFavoriteSortScrollReset by remember { mutableStateOf(false) }
     var favoriteSortSawRefreshLoading by remember { mutableStateOf(false) }
-    val currentSongId = stablePlayerState.currentSong?.id
+    val currentSongId by remember(playerViewModel) {
+        playerViewModel.stablePlayerState
+            .map { it.currentSong?.id }
+            .distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = null)
 
     val currentSongListIndex = remember(favoriteSongs.itemCount, currentSongId) {
         if (currentSongId == null) -1
@@ -212,12 +217,9 @@ fun LibraryFavoritesTab(
                         ) { index ->
                             val song = favoriteSongs[index]
                             if (song != null) {
-                                val isPlayingThisSong =
-                                    song.id == stablePlayerState.currentSong?.id && stablePlayerState.isPlaying
-                                EnhancedSongListItem(
+                                LibraryPlaybackAwareSongItem(
                                     song = song,
-                                    isCurrentSong = stablePlayerState.currentSong?.id == song.id,
-                                    isPlaying = isPlayingThisSong,
+                                    playerViewModel = playerViewModel,
                                     onMoreOptionsClick = { onMoreOptionsClick(song) },
                                     isSelected = selectedSongIds.contains(song.id),
                                     selectionIndex = if (isSelectionMode) getSelectionIndex(song.id) else null,
@@ -248,7 +250,7 @@ fun LibraryFavoritesTab(
                         }
                     }
 
-                    val bottomPadding = if (stablePlayerState.currentSong != null && stablePlayerState.currentSong != Song.emptySong())
+                    val bottomPadding = if (hasCurrentSong)
                         bottomBarHeight + MiniPlayerHeight + 16.dp
                     else
                         bottomBarHeight + 16.dp

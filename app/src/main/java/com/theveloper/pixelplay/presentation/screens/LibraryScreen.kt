@@ -1005,8 +1005,19 @@ fun LibraryScreen(
                                 playlistUiState.playlists.filterNot { it.source == "TELEGRAM" }
                             }
                         }
-                        val stablePlayerState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
+                        val allSongsLazyPagingItems = libraryViewModel.songsPagingFlow.collectAsLazyPagingItems()
                         val favoritePagingItems = libraryViewModel.favoritesPagingFlow.collectAsLazyPagingItems()
+                        val isLibraryLoading by libraryViewModel.isLoadingLibrary.collectAsStateWithLifecycle()
+                        val hasCurrentSong by remember(playerViewModel) {
+                            playerViewModel.stablePlayerState
+                                .map { state -> state.currentSong != null && state.currentSong != Song.emptySong() }
+                                .distinctUntilChanged()
+                        }.collectAsStateWithLifecycle(initialValue = false)
+                        val isShuffleEnabled by remember(playerViewModel) {
+                            playerViewModel.stablePlayerState
+                                .map { it.isShuffleEnabled }
+                                .distinctUntilChanged()
+                        }.collectAsStateWithLifecycle(initialValue = false)
 
                         LaunchedEffect(
                             playlistUiState.showTelegramCloudPlaylists,
@@ -1156,7 +1167,7 @@ fun LibraryScreen(
                                     folderRootLabel = playerUiState.folderSource.displayName,
                                     onFolderClick = { playerViewModel.navigateToFolder(it) },
                                     onNavigateBack = { playerViewModel.navigateBackFolder() },
-                                    isShuffleEnabled = stablePlayerState.isShuffleEnabled,
+                                    isShuffleEnabled = isShuffleEnabled,
                                     showStorageFilterButton = currentTabId == LibraryTabId.SONGS ||
                                         currentTabId == LibraryTabId.ALBUMS ||
                                         currentTabId == LibraryTabId.ARTISTS ||
@@ -1320,15 +1331,9 @@ fun LibraryScreen(
                                 )
                                 when (tabTitles.getOrNull(tabIndex)?.toLibraryTabIdOrNull()) {
                                     LibraryTabId.SONGS -> {
-                                        // Use Paging 3 flow from LibraryStateHolder
-                                        val allSongsLazyPagingItems = libraryViewModel.songsPagingFlow.collectAsLazyPagingItems()
-                                        // We can use libraryViewModel.isLoadingLibrary or similar if needed for global loading state
-                                        val isLibraryLoading by libraryViewModel.isLoadingLibrary.collectAsStateWithLifecycle()
-
                                         LibrarySongsTab(
                                             songs = allSongsLazyPagingItems,
                                             isLoading = isLibraryLoading,
-                                            stablePlayerState = stablePlayerState,
                                             playerViewModel = playerViewModel,
                                             bottomBarHeight = bottomBarHeightDp,
                                             onMoreOptionsClick = stableOnMoreOptionsClick,
@@ -1345,7 +1350,8 @@ fun LibraryScreen(
                                             onLocateCurrentSongVisibilityChanged = { songsShowLocateButton = it },
                                             onRegisterLocateCurrentSongAction = { songsLocateAction = it },
                                             sortOption = playerUiState.currentSongSortOption,
-                                            storageFilter = playerUiState.currentStorageFilter
+                                            storageFilter = playerUiState.currentStorageFilter,
+                                            hasCurrentSong = hasCurrentSong
                                         )
                                     }
                                     LibraryTabId.ALBUMS -> {
@@ -1433,7 +1439,8 @@ fun LibraryScreen(
                                             sortOption = playerUiState.currentFavoriteSortOption,
                                             onLocateCurrentSongVisibilityChanged = { likedShowLocateButton = it },
                                             onRegisterLocateCurrentSongAction = { likedLocateAction = it },
-                                            storageFilter = playerUiState.currentStorageFilter
+                                            storageFilter = playerUiState.currentStorageFilter,
+                                            hasCurrentSong = hasCurrentSong
                                         )
                                     }
 
@@ -1450,6 +1457,7 @@ fun LibraryScreen(
                                             val folders = playerUiState.musicFolders
                                             val currentFolder = playerUiState.currentFolder
                                             val isLoading = playerUiState.isLoadingLibraryCategories
+                                            val stablePlayerState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
 
                                             LibraryFoldersTab(
                                                 folders = folders,
