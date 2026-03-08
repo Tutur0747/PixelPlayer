@@ -688,7 +688,8 @@ fun SettingsCategoryScreen(
                                     title = "Enable ReplayGain",
                                     subtitle = "Normalize volume levels using ReplayGain metadata from audio files.",
                                     checked = uiState.replayGainEnabled,
-                                    onCheckedChange = { settingsViewModel.setReplayGainEnabled(it) }
+                                    onCheckedChange = { settingsViewModel.setReplayGainEnabled(it) },
+                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_volume_down_24), null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
                                 AnimatedVisibility(
                                     visible = uiState.replayGainEnabled,
@@ -714,6 +715,16 @@ fun SettingsCategoryScreen(
                                     selectedKey = if (uiState.disableCastAutoplay) "true" else "false",
                                     onSelectionChanged = { settingsViewModel.setDisableCastAutoplay(it.toBoolean()) },
                                     leadingIcon = { Icon(painterResource(R.drawable.rounded_cast_24), null, tint = MaterialTheme.colorScheme.secondary) }
+                                )
+                            }
+
+                            SettingsSubsection(title = "Headphones") {
+                                SwitchSettingItem(
+                                    title = "Resume when headphones reconnect",
+                                    subtitle = "If playback paused because headphones were removed, resume automatically when they connect again.",
+                                    checked = uiState.resumeOnHeadsetReconnect,
+                                    onCheckedChange = { settingsViewModel.setResumeOnHeadsetReconnect(it) },
+                                    leadingIcon = { Icon(painterResource(R.drawable.rounded_headphones_24), null, tint = MaterialTheme.colorScheme.secondary) }
                                 )
                             }
 
