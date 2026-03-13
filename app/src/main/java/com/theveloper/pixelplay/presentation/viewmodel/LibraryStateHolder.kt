@@ -77,7 +77,7 @@ class LibraryStateHolder @Inject constructor(
         return if (ENABLE_FOLDERS_STORAGE_FILTER) {
             selectedFilter
         } else {
-            com.theveloper.pixelplay.data.model.StorageFilter.OFFLINE
+            com.theveloper.pixelplay.data.model.StorageFilter.ALL
         }
     }
 

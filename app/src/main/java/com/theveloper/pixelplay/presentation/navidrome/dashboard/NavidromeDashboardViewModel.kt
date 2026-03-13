@@ -38,7 +38,7 @@ class NavidromeDashboardViewModel @Inject constructor(
 
     init {
         // Auto-sync playlists when the dashboard opens
-        syncPlaylists()
+        syncAllPlaylistsAndSongs()
     }
 
     fun syncAllPlaylistsAndSongs() {
