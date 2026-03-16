@@ -594,57 +594,34 @@ class NavidromeRepository @Inject constructor(
         val existingUnifiedIds = musicDao.getAllNavidromeSongIds()
 
         if (navidromeSongs.isEmpty()) {
-            if (existingUnifiedIds.isNotEmpty()) {
-                musicDao.clearAllNavidromeSongs()
-            }
+            if (existingUnifiedIds.isNotEmpty()) musicDao.clearAllNavidromeSongs()
             return
         }
 
-        val songs = ArrayList<SongEntity>(navidromeSongs.size)
-        val artists = LinkedHashMap<Long, ArtistEntity>()
-        val albums = LinkedHashMap<Long, AlbumEntity>()
+        val songs = ArrayList<SongEntity>()
+        val artistsMap = LinkedHashMap<Long, ArtistEntity>()
+        val albumsMap = LinkedHashMap<Long, AlbumEntity>()
         val crossRefs = mutableListOf<SongArtistCrossRef>()
 
         navidromeSongs.forEach { navidromeSong ->
-            var songId = toUnifiedSongId(navidromeSong.navidromeId)
             val artistNames = parseArtistNames(navidromeSong.artist)
             val primaryArtistName = artistNames.firstOrNull() ?: "Unknown Artist"
 
-            // Cherche si l'artiste existe déjà en base (MediaStore ou autre source)
-            // pour éviter les doublons (ex: Bad Bunny local + Bad Bunny Navidrome)
-            val existingPrimaryId = musicDao.getArtistIdByNormalizedName(primaryArtistName)
-            val primaryArtistId = existingPrimaryId ?: toUnifiedArtistId(primaryArtistName)
+            // 1. GESTION DE L'ARTISTE (DEDUPLICATION)
+            val existingArtistId = musicDao.getArtistIdByNormalizedName(primaryArtistName)
+            val primaryArtistId = existingArtistId ?: toUnifiedArtistId(primaryArtistName)
 
-            artistNames.forEachIndexed { index, artistName ->
-                val existingId = musicDao.getArtistIdByNormalizedName(artistName)
-                val artistId = existingId ?: toUnifiedArtistId(artistName)
-
-                artists.putIfAbsent(
-                    artistId,
-                    ArtistEntity(
-                        id = artistId,
-                        name = artistName,
-                        trackCount = 0,
-                        imageUrl = null
-                    )
-                )
-                crossRefs.add(
-                    SongArtistCrossRef(
-                        songId = songId,
-                        artistId = artistId,
-                        isPrimary = index == 0
-                    )
-                )
+            // On s'assure que l'artiste est dans la liste pour éviter le crash de clé étrangère
+            artistsMap.getOrPut(primaryArtistId) {
+                ArtistEntity(id = primaryArtistId, name = primaryArtistName, trackCount = 0)
             }
 
-
+            // 2. GESTION DE L'ALBUM (DEDUPLICATION)
             val albumName = navidromeSong.album.ifBlank { "Unknown Album" }
             val existingAlbumId = musicDao.getAlbumIdByTitleAndArtist(albumName, primaryArtistId)
-            val albumId =
-                existingAlbumId ?: toUnifiedAlbumId(navidromeSong.albumId, navidromeSong.album)
+            val albumId = existingAlbumId ?: toUnifiedAlbumId(navidromeSong.albumId, albumName)
 
-            albums.putIfAbsent(
-                albumId,
+            albumsMap.getOrPut(albumId) {
                 AlbumEntity(
                     id = albumId,
                     title = albumName,
@@ -652,66 +629,46 @@ class NavidromeRepository @Inject constructor(
                     artistId = primaryArtistId,
                     songCount = 0,
                     year = navidromeSong.year,
-                    // On préfère l'art local si l'album existe déjà et a une image
                     albumArtUriString = getCoverArtUrl(navidromeSong.coverArtId)
                 )
-            )
+            }
 
-            // 2. Recherche de la Chanson existante pour éviter le dédoublement
-            val existingSongId = musicDao.getSongIdByMetadata(navidromeSong.title, albumId, primaryArtistId)
-            songId = existingSongId ?: toUnifiedSongId(navidromeSong.navidromeId)
-
-
-            // Si la chanson existe déjà (ex: en local), on peut choisir de ne pas l'ajouter
-            // ou de mettre à jour son contenu. Ici, on utilise l'ID existant pour "écraser/fusionner".
-
-
-
+            // 3. GESTION DE LA CHANSON (DEDUPLICATION)
+            val existingSongId =
+                musicDao.getSongIdByMetadata(navidromeSong.title, albumId, primaryArtistId)
+            val songId = existingSongId ?: toUnifiedSongId(navidromeSong.navidromeId)
 
             songs.add(
                 SongEntity(
                     id = songId,
                     title = navidromeSong.title,
-                    artistName = navidromeSong.artist.ifBlank { primaryArtistName },
+                    artistName = primaryArtistName,
                     artistId = primaryArtistId,
-                    albumArtist = null,
                     albumName = albumName,
                     albumId = albumId,
                     contentUriString = "navidrome://${navidromeSong.navidromeId}",
                     albumArtUriString = getCoverArtUrl(navidromeSong.coverArtId),
                     duration = navidromeSong.duration,
-                    genre = navidromeSong.genre ?: NAVIDROME_GENRE,
                     filePath = navidromeSong.path,
                     parentDirectoryPath = NAVIDROME_PARENT_DIRECTORY,
-                    isFavorite = false,
-                    lyrics = null,
                     trackNumber = navidromeSong.trackNumber,
                     year = navidromeSong.year,
-                    dateAdded = navidromeSong.dateAdded.takeIf { it > 0 }
-                        ?: System.currentTimeMillis(),
                     mimeType = navidromeSong.mimeType,
                     bitrate = navidromeSong.bitRate,
-                    sampleRate = null,
-                    telegramChatId = null,
-                    telegramFileId = null
+                    genre = navidromeSong.genre
                 )
             )
+
+            crossRefs.add(SongArtistCrossRef(songId, primaryArtistId, true))
         }
 
-        val albumCounts = songs.groupingBy { it.albumId }.eachCount()
-        val finalAlbums = albums.values.map { album ->
-            album.copy(songCount = albumCounts[album.id] ?: 0)
-        }
-
-        val currentUnifiedIds = songs.map { it.id }.toSet()
-        val deletedUnifiedIds = existingUnifiedIds.filter { it !in currentUnifiedIds }
-
+        // Envoi groupé au DAO (Transaction sécurisée)
         musicDao.incrementalSyncMusicData(
             songs = songs,
-            albums = finalAlbums,
-            artists = artists.values.toList(),
+            albums = albumsMap.values.toList(),
+            artists = artistsMap.values.toList(),
             crossRefs = crossRefs,
-            deletedSongIds = deletedUnifiedIds
+            deletedSongIds = existingUnifiedIds.filter { it !in songs.map { s -> s.id } }
         )
     }
 

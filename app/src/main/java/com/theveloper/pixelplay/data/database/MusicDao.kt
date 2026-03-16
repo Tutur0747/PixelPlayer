@@ -284,12 +284,18 @@ interface MusicDao {
 
 
 
-    // Dans MusicDao.kt
-    @Query("SELECT id FROM albums WHERE LOWER(title) = LOWER(:title) AND artist_id = :artistId LIMIT 1")
+
+    // Dans app/src/main/java/com/theveloper/pixelplay/data/database/MusicDao.kt
+    @Query("SELECT id FROM artists WHERE LOWER(TRIM(name)) = LOWER(TRIM(:name)) LIMIT 1")
+    suspend fun getArtistIdByNormalizedName(name: String): Long?
+
+    @Query("SELECT id FROM albums WHERE LOWER(TRIM(title)) = LOWER(TRIM(:title)) AND artist_id = :artistId LIMIT 1")
     suspend fun getAlbumIdByTitleAndArtist(title: String, artistId: Long): Long?
 
-    @Query("SELECT id FROM songs WHERE LOWER(title) = LOWER(:title) AND album_id = :albumId AND artist_id = :artistId LIMIT 1")
+    @Query("SELECT id FROM songs WHERE LOWER(TRIM(title)) = LOWER(TRIM(:title)) AND album_id = :albumId AND artist_id = :artistId LIMIT 1")
     suspend fun getSongIdByMetadata(title: String, albumId: Long, artistId: Long): Long?
+
+
 
 
 
@@ -830,8 +836,11 @@ interface MusicDao {
     @Query("SELECT id FROM artists WHERE name = :name LIMIT 1")
     suspend fun getArtistIdByName(name: String): Long?
 
-    @Query("SELECT id FROM artists WHERE LOWER(TRIM(name)) = LOWER(TRIM(:name)) LIMIT 1")
-    suspend fun getArtistIdByNormalizedName(name: String): Long?
+
+
+
+
+
 
     @Query("SELECT MAX(id) FROM artists")
     suspend fun getMaxArtistId(): Long?
