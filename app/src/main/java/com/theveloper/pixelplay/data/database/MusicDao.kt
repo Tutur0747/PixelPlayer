@@ -280,6 +280,21 @@ interface MusicDao {
 
     // --- Song Queries ---
     // Updated getSongs to include Telegram songs (negative IDs) regardless of directory filter
+
+
+
+
+    // Dans MusicDao.kt
+    @Query("SELECT id FROM albums WHERE LOWER(title) = LOWER(:title) AND artist_id = :artistId LIMIT 1")
+    suspend fun getAlbumIdByTitleAndArtist(title: String, artistId: Long): Long?
+
+    @Query("SELECT id FROM songs WHERE LOWER(title) = LOWER(:title) AND album_id = :albumId AND artist_id = :artistId LIMIT 1")
+    suspend fun getSongIdByMetadata(title: String, albumId: Long, artistId: Long): Long?
+
+
+
+
+
     @Query("""
         SELECT * FROM songs
         WHERE (:applyDirectoryFilter = 0 OR id < 0 OR parent_directory_path IN (:allowedParentDirs))

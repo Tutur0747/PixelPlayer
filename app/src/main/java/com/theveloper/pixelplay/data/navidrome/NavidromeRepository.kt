@@ -606,7 +606,7 @@ class NavidromeRepository @Inject constructor(
         val crossRefs = mutableListOf<SongArtistCrossRef>()
 
         navidromeSongs.forEach { navidromeSong ->
-            val songId = toUnifiedSongId(navidromeSong.navidromeId)
+            var songId = toUnifiedSongId(navidromeSong.navidromeId)
             val artistNames = parseArtistNames(navidromeSong.artist)
             val primaryArtistName = artistNames.firstOrNull() ?: "Unknown Artist"
 
@@ -637,8 +637,12 @@ class NavidromeRepository @Inject constructor(
                 )
             }
 
-            val albumId = toUnifiedAlbumId(navidromeSong.albumId, navidromeSong.album)
+
             val albumName = navidromeSong.album.ifBlank { "Unknown Album" }
+            val existingAlbumId = musicDao.getAlbumIdByTitleAndArtist(albumName, primaryArtistId)
+            val albumId =
+                existingAlbumId ?: toUnifiedAlbumId(navidromeSong.albumId, navidromeSong.album)
+
             albums.putIfAbsent(
                 albumId,
                 AlbumEntity(
@@ -648,9 +652,21 @@ class NavidromeRepository @Inject constructor(
                     artistId = primaryArtistId,
                     songCount = 0,
                     year = navidromeSong.year,
+                    // On préfère l'art local si l'album existe déjà et a une image
                     albumArtUriString = getCoverArtUrl(navidromeSong.coverArtId)
                 )
             )
+
+            // 2. Recherche de la Chanson existante pour éviter le dédoublement
+            val existingSongId = musicDao.getSongIdByMetadata(navidromeSong.title, albumId, primaryArtistId)
+            songId = existingSongId ?: toUnifiedSongId(navidromeSong.navidromeId)
+
+
+            // Si la chanson existe déjà (ex: en local), on peut choisir de ne pas l'ajouter
+            // ou de mettre à jour son contenu. Ici, on utilise l'ID existant pour "écraser/fusionner".
+
+
+
 
             songs.add(
                 SongEntity(
