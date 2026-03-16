@@ -31,6 +31,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import timber.log.Timber
+import java.net.HttpURLConnection
+import java.net.URL
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.absoluteValue
@@ -589,6 +592,29 @@ class NavidromeRepository @Inject constructor(
     /**
      * Sync Navidrome songs to the unified music library.
      */
+
+
+    // Dans NavidromeRepository.kt
+    private suspend fun downloadAndSaveImage(url: String, fileName: String): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                val cacheDir = File(context.cacheDir, "navidrome_art")
+                if (!cacheDir.exists()) cacheDir.mkdirs()
+                val file = File(cacheDir, "$fileName.jpg")
+
+                if (file.exists() && file.length() > 0) return@withContext file.absolutePath
+
+                val connection = URL(url).openConnection() as HttpURLConnection
+                connection.connectTimeout = 5000
+                connection.inputStream.use { input ->
+                    file.outputStream().use { output -> input.copyTo(output) }
+                }
+                file.absolutePath
+            } catch (e: Exception) {
+                null
+            }
+        }
+
     suspend fun syncUnifiedLibrarySongsFromNavidrome() {
         val navidromeSongs = dao.getAllNavidromeSongsList()
         val existingUnifiedIds = musicDao.getAllNavidromeSongIds()
@@ -604,23 +630,20 @@ class NavidromeRepository @Inject constructor(
         val crossRefs = mutableListOf<SongArtistCrossRef>()
 
         navidromeSongs.forEach { navidromeSong ->
-            val artistNames = parseArtistNames(navidromeSong.artist)
-            val primaryArtistName = artistNames.firstOrNull() ?: "Unknown Artist"
+            val primaryArtistName =
+                parseArtistNames(navidromeSong.artist).firstOrNull() ?: "Unknown Artist"
+            val albumName = navidromeSong.album.ifBlank { "Unknown Album" }
 
-            // 1. GESTION DE L'ARTISTE (DEDUPLICATION)
+            // 1. DÉDUPLICATION ARTISTE
             val existingArtistId = musicDao.getArtistIdByNormalizedName(primaryArtistName)
             val primaryArtistId = existingArtistId ?: toUnifiedArtistId(primaryArtistName)
-
-            // On s'assure que l'artiste est dans la liste pour éviter le crash de clé étrangère
             artistsMap.getOrPut(primaryArtistId) {
                 ArtistEntity(id = primaryArtistId, name = primaryArtistName, trackCount = 0)
             }
 
-            // 2. GESTION DE L'ALBUM (DEDUPLICATION)
-            val albumName = navidromeSong.album.ifBlank { "Unknown Album" }
+            // 2. DÉDUPLICATION ALBUM
             val existingAlbumId = musicDao.getAlbumIdByTitleAndArtist(albumName, primaryArtistId)
             val albumId = existingAlbumId ?: toUnifiedAlbumId(navidromeSong.albumId, albumName)
-
             albumsMap.getOrPut(albumId) {
                 AlbumEntity(
                     id = albumId,
@@ -633,10 +656,24 @@ class NavidromeRepository @Inject constructor(
                 )
             }
 
-            // 3. GESTION DE LA CHANSON (DEDUPLICATION)
+            // 3. DÉDUPLICATION CHANSON (ÉVITER DOUBLONS LOCAL)
             val existingSongId =
                 musicDao.getSongIdByMetadata(navidromeSong.title, albumId, primaryArtistId)
+
+            // CRUCIAL : Si la chanson existe déjà avec un ID POSITIF (Local), on ignore la version Navidrome
+            if (existingSongId != null && existingSongId > 0) {
+                Timber.d("Dédoublonnement : Titre '${navidromeSong.title}' ignoré car présent en local (ID: $existingSongId)")
+                return@forEach
+            }
+
             val songId = existingSongId ?: toUnifiedSongId(navidromeSong.navidromeId)
+
+            // 4. MISE EN CACHE IMAGE
+            val remoteArtUrl = getCoverArtUrl(navidromeSong.coverArtId)
+            val finalArtUri = if (remoteArtUrl != null) {
+                downloadAndSaveImage(remoteArtUrl, "nav_${navidromeSong.coverArtId}")
+                    ?: remoteArtUrl
+            } else null
 
             songs.add(
                 SongEntity(
@@ -647,7 +684,7 @@ class NavidromeRepository @Inject constructor(
                     albumName = albumName,
                     albumId = albumId,
                     contentUriString = "navidrome://${navidromeSong.navidromeId}",
-                    albumArtUriString = getCoverArtUrl(navidromeSong.coverArtId),
+                    albumArtUriString = finalArtUri,
                     duration = navidromeSong.duration,
                     filePath = navidromeSong.path,
                     parentDirectoryPath = NAVIDROME_PARENT_DIRECTORY,
@@ -658,11 +695,9 @@ class NavidromeRepository @Inject constructor(
                     genre = navidromeSong.genre
                 )
             )
-
             crossRefs.add(SongArtistCrossRef(songId, primaryArtistId, true))
         }
 
-        // Envoi groupé au DAO (Transaction sécurisée)
         musicDao.incrementalSyncMusicData(
             songs = songs,
             albums = albumsMap.values.toList(),
@@ -671,6 +706,11 @@ class NavidromeRepository @Inject constructor(
             deletedSongIds = existingUnifiedIds.filter { it !in songs.map { s -> s.id } }
         )
     }
+
+
+
+
+
 
     // ─── Utility Methods ───────────────────────────────────────────────────
 
