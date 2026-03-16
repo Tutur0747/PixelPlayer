@@ -609,10 +609,16 @@ class NavidromeRepository @Inject constructor(
             val songId = toUnifiedSongId(navidromeSong.navidromeId)
             val artistNames = parseArtistNames(navidromeSong.artist)
             val primaryArtistName = artistNames.firstOrNull() ?: "Unknown Artist"
-            val primaryArtistId = toUnifiedArtistId(primaryArtistName)
+
+            // Cherche si l'artiste existe déjà en base (MediaStore ou autre source)
+            // pour éviter les doublons (ex: Bad Bunny local + Bad Bunny Navidrome)
+            val existingPrimaryId = musicDao.getArtistIdByNormalizedName(primaryArtistName)
+            val primaryArtistId = existingPrimaryId ?: toUnifiedArtistId(primaryArtistName)
 
             artistNames.forEachIndexed { index, artistName ->
-                val artistId = toUnifiedArtistId(artistName)
+                val existingId = musicDao.getArtistIdByNormalizedName(artistName)
+                val artistId = existingId ?: toUnifiedArtistId(artistName)
+
                 artists.putIfAbsent(
                     artistId,
                     ArtistEntity(
@@ -789,11 +795,12 @@ class NavidromeRepository @Inject constructor(
  * Convert a NavidromeSong to a Song model.
  */
 fun NavidromeSong.toSong(): Song {
+    val computedArtistId = -(11_000_000_000_000L + artist.lowercase().hashCode().toLong().absoluteValue)
     return Song(
         id = "navidrome_$id",
         title = title,
         artist = artist,
-        artistId = -1L,
+        artistId = computedArtistId,
         album = album,
         albumId = -1L,
         path = path,
