@@ -2025,9 +2025,22 @@ private fun PlayerSongInfo(
 ) {
     val coroutineScope = rememberCoroutineScope()
     var isNavigatingToArtist by remember { mutableStateOf(false) }
+
+
+
+
+
+
     val resolvedArtistId by remember(artists, artistId) {
-        derivedStateOf { artists.firstOrNull { it.id > 0L }?.id ?: artistId }
+        derivedStateOf {
+            // Correction : On accepte les IDs négatifs (Navidrome) mais on ignore -1L (Inconnu)
+            artists.firstOrNull { it.id != -1L }?.id ?: artistId
+        }
     }
+
+
+
+
     val titleStyle = MaterialTheme.typography.headlineSmall.copy(
         fontWeight = FontWeight.Bold,
         fontFamily = GoogleSansRounded,

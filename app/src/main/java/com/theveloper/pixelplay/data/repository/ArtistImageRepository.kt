@@ -214,15 +214,7 @@ class ArtistImageRepository @Inject constructor(
                     memoryCache.put(normalizedName, finalPath)
                     musicDao.updateArtistImageUrl(artistId, finalPath)
 
-                    // --- CODE DE VÉRIFICATION (À retirer plus tard) ---
-                    withContext(Dispatchers.Main) {
-                        // Si le chemin contient "files/", c'est que c'est bien stocké en local !
-                        if (finalPath.contains("/")) {
-                            android.widget.Toast.makeText(context, "✅ Image locale pour : $artistName", android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    // --------------------------------------------------
-                } else {
+                  } else {
                     failedFetches.add(normalizedName)
                 }
                 finalPath
