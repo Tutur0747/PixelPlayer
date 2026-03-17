@@ -500,8 +500,9 @@ object AppModule {
     @Singleton
     fun provideArtistImageRepository(
         deezerApiService: DeezerApiService,
-        musicDao: MusicDao
+        musicDao: MusicDao,
+        @ApplicationContext context: Context
     ): ArtistImageRepository {
-        return ArtistImageRepository(deezerApiService, musicDao)
+        return ArtistImageRepository(deezerApiService, musicDao, context)
     }
 }

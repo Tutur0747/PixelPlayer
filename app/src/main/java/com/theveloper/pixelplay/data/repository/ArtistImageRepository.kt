@@ -10,12 +10,16 @@ import com.theveloper.pixelplay.data.database.MusicDao
 import com.theveloper.pixelplay.data.network.deezer.DeezerApiService
 import com.theveloper.pixelplay.utils.NetworkRetryUtils
 import com.theveloper.pixelplay.utils.isRetryableNetworkError
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.net.URL
+import java.net.HttpURLConnection
 import java.io.File
 import java.io.FileOutputStream
 import javax.inject.Inject
@@ -30,7 +34,8 @@ import kotlinx.coroutines.sync.withPermit
 @Singleton
 class ArtistImageRepository @Inject constructor(
     private val deezerApiService: DeezerApiService,
-    private val musicDao: MusicDao
+    private val musicDao: MusicDao,
+    @ApplicationContext private val context: Context
 ) {
     companion object {
         private const val TAG = "ArtistImageRepository"
@@ -122,9 +127,51 @@ class ArtistImageRepository @Inject constructor(
             }.awaitAll()
         }
     }
-    
+
+
+
+
+
+
+    // 3. Ajoutez cette fonction utilitaire de téléchargement
+    private suspend fun downloadAndSaveArtistImage(url: String, artistId: Long): String? = withContext(Dispatchers.IO) {
+        try {
+            val directory = File(context.filesDir, "artist_arts")
+            if (!directory.exists()) directory.mkdirs()
+
+            val file = File(directory, "artist_$artistId.jpg")
+            // Si le fichier existe déjà, on ne le re-télécharge pas
+            if (file.exists() && file.length() > 0) return@withContext file.absolutePath
+
+            val connection = URL(url).openConnection() as HttpURLConnection
+            connection.connectTimeout = 5000
+            connection.inputStream.use { input ->
+                file.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            file.absolutePath
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to download artist image: ${e.message}")
+            null
+        }
+    }
+
+
+    suspend fun getFallbackArtistImageFromAlbums(artistId: Long): String? {
+        return withContext(Dispatchers.IO) {
+            // On récupère les albums de cet artiste
+            val albums = musicDao.getAlbumsByArtistId(artistId).first()
+            // On prend la première pochette d'album disponible
+            albums.firstOrNull { !it.albumArtUriString.isNullOrBlank() }?.albumArtUriString
+        }
+    }
+
+
+
+
     // ... fetchAndCacheArtistImage method ...
-    
+
     private suspend fun fetchAndCacheArtistImage(
         artistName: String,
         artistId: Long,
@@ -145,43 +192,46 @@ class ArtistImageRepository @Inject constructor(
                 }
                 val deezerArtist = response.data.firstOrNull()
 
-                if (deezerArtist != null) {
-                    val imageUrl = (
-                        deezerArtist.pictureXl
-                            ?: deezerArtist.pictureBig
-                            ?: deezerArtist.pictureMedium
-                            ?: deezerArtist.picture
-                        )?.let(::upgradeToHighResDeezerUrl)
+                // Étape 1 : On cherche l'image sur Deezer
+                var remoteUrl = (deezerArtist?.pictureXl ?: deezerArtist?.pictureBig ?: deezerArtist?.pictureMedium ?: deezerArtist?.picture)
+                    ?.let(::upgradeToHighResDeezerUrl)
 
-                    if (!imageUrl.isNullOrEmpty()) {
-                        // Cache in memory
-                        memoryCache.put(normalizedName, imageUrl)
-                        
-                        // Cache in database
-                        musicDao.updateArtistImageUrl(artistId, imageUrl)
-                        
-                        Log.d(TAG, "Fetched and cached image for $artistName: $imageUrl")
-                        imageUrl
-                    } else {
-                        null
-                    }
+                // Étape 2 : Si Deezer n'a rien, on tente le fallback (pochette d'album)
+                val finalPath = if (!remoteUrl.isNullOrEmpty()) {
+                    val localPath = downloadAndSaveArtistImage(remoteUrl, artistId)
+                    localPath ?: remoteUrl
                 } else {
-                    Log.d(TAG, "No Deezer artist found for: $artistName")
-                    failedFetches.add(normalizedName) // Mark as failed
-                    null
+                    // LOGIQUE FALLBACK : On prend une image d'album
+                    val albumArt = getFallbackArtistImageFromAlbums(artistId)
+                    if (albumArt != null) {
+                        Log.d(TAG, "Fallback utilisé pour $artistName : $albumArt")
+                        albumArt
+                    } else null
                 }
+
+                // Étape 3 : On met à jour la base de données
+                if (finalPath != null) {
+                    memoryCache.put(normalizedName, finalPath)
+                    musicDao.updateArtistImageUrl(artistId, finalPath)
+
+                    // --- CODE DE VÉRIFICATION (À retirer plus tard) ---
+                    withContext(Dispatchers.Main) {
+                        // Si le chemin contient "files/", c'est que c'est bien stocké en local !
+                        if (finalPath.contains("/")) {
+                            android.widget.Toast.makeText(context, "✅ Image locale pour : $artistName", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    // --------------------------------------------------
+                } else {
+                    failedFetches.add(normalizedName)
+                }
+                finalPath
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching artist image for $artistName: ${e.message}")
-            // Consider transient errors? For now treating as failed to avoid spam.
-            if(e !is java.net.SocketTimeoutException) {
-                failedFetches.add(normalizedName)
-            }
             null
         } finally {
-            fetchMutex.withLock {
-                pendingFetches.remove(normalizedName)
-            }
+            fetchMutex.withLock { pendingFetches.remove(normalizedName) }
         }
     }
 
