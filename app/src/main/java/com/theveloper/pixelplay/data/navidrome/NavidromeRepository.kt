@@ -706,10 +706,25 @@ class NavidromeRepository @Inject constructor(
             crossRefs.add(SongArtistCrossRef(songId, primaryArtistId, true))
         }
 
-        // Mise à jour BDD
-        musicDao.incrementalSyncMusicData(songs, albumsMap.values.toList(), artistsMap.values.toList(), crossRefs, emptyList())
 
-        // Lancement du chargement des images
+
+
+        // 1. On calcule quels titres Navidrome doivent être supprimés
+        // (ceux qui étaient là avant mais ne sont plus dans notre nouvelle liste 'songs')
+        val songsToDelete = existingUnifiedIds.filter { id ->
+            songs.none { it.id == id }
+        }
+
+        // 2. Mise à jour BDD avec la liste de suppression
+        musicDao.incrementalSyncMusicData(
+            songs = songs,
+            albums = albumsMap.values.toList(),
+            artists = artistsMap.values.toList(),
+            crossRefs = crossRefs,
+            deletedSongIds = songsToDelete // TRÈS IMPORTANT : ne plus laisser emptyList()
+        )
+
+        // 3. Lancement du chargement des images
         val artistsToPrefetch = artistsMap.values.map { it.id to it.name }
         artistImageRepository.prefetchArtistImages(artistsToPrefetch)
     }

@@ -1834,8 +1834,9 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun triggerArtistNavigationFromPlayer(artistId: Long) {
-        if (artistId <= 0) {
-            Log.d("ArtistDebug", "triggerArtistNavigationFromPlayer ignored invalid artistId=$artistId")
+        // MODIFICATION : On autorise les IDs négatifs, on bloque seulement -1L (inconnu)
+        if (artistId == -1L) {
+            Log.d("ArtistDebug", "Ignored invalid artistId -1")
             return
         }
 
